@@ -1,11 +1,13 @@
 import threading
+import time
+import sys
+from io import StringIO
 
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 
 from launcher.commands import AnomalyInstall, FullInstall, GammaSetup, Usvfs
-
 
 class Args:
     """Arguments sent to gamma-launcher module."""
@@ -23,6 +25,7 @@ class Args:
         self.final = ''
         self.update_def = True
         self.anomaly_patch = True
+        self.preserve_user_config = False
 
 
 class StackWindow(Gtk.ApplicationWindow):
@@ -71,6 +74,8 @@ class GuiAnomalyInstall:
         checkbutton.props.halign = Gtk.Align.CENTER
         self.win.init_stack()
         self.win.present()
+        self.output = StringIO()
+        self.textbuffer = Gtk.TextBuffer()
 
     def generic_tab(self, name, list_inputs, install_fnct):
         box_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
@@ -90,13 +95,37 @@ class GuiAnomalyInstall:
         self.button.set_label('Execute')
         self.button.connect('clicked', install_fnct)
         hbox.append(self.button)
+        # ===============
+        textview = Gtk.TextView.new_with_buffer(self.textbuffer)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_child(textview)
+        scroll.set_propagate_natural_height(True)
+        #scroll.set_min_content_height(500)
+        #self.textbuffer = self.textview.get_buffer()
+        exp = Gtk.Expander()
+        exp.set_child(scroll)
+        exp.set_expanded(True)
+        exp.set_resize_toplevel(True)
+        hbox.append(exp)
+        # =============
         listbox.append(row)
         box_outer.append(listbox)
         self.win.add_titled_to_stack(box_outer, name, name)
         self.win.init_stack()
 
+    def gamma_terminal_worker(self):
+        while self.thread.is_alive():
+            self.textbuffer.insert_at_cursor(self.output.getvalue())
+            self.output.truncate(0)
+            self.output.seek(0)
+            time.sleep(1)
+        return 0
+
     def gamma_launcher_worker(self, target, button, args):
         try:
+            self.stderr = sys.stderr
+            sys.stdout = self.output
+            sys.stderr = self.output
             target(args)
         except:
             button.set_label('Failed, Try Again?')
@@ -115,7 +144,12 @@ class GuiAnomalyInstall:
         args.cache_path = cache_dir
 
         self.thread = threading.Thread(target=self.gamma_launcher_worker, args=(anomaly_install.run, button, args))
+        
         self.thread.start()
+        while not self.thread.is_alive():
+            pass
+        temp = threading.Thread(target=self.gamma_terminal_worker)
+        temp.start()
 
     def full_install(self, button):
         if self.thread.is_alive():
@@ -136,6 +170,10 @@ class GuiAnomalyInstall:
 
         self.thread = threading.Thread(target=self.gamma_launcher_worker, args=(full_install.run, button, args))
         self.thread.start()
+        while not self.thread.is_alive():
+            pass
+        temp = threading.Thread(target=self.gamma_terminal_worker)
+        temp.start()
 
     def gamma_setup(self, button):
         if self.thread.is_alive():
@@ -154,6 +192,10 @@ class GuiAnomalyInstall:
 
         self.thread = threading.Thread(target=self.gamma_launcher_worker, args=(gamma_setup.run, button, args))
         self.thread.start()
+        while not self.thread.is_alive():
+            pass
+        temp = threading.Thread(target=self.gamma_terminal_worker)
+        temp.start()
 
     def gamma_usvfs(self, button):
         if self.thread.is_alive():
@@ -170,6 +212,10 @@ class GuiAnomalyInstall:
 
         self.thread = threading.Thread(target=self.gamma_launcher_worker, args=(gamma_usvfs.run, button, args))
         self.thread.start()
+        while not self.thread.is_alive():
+            pass
+        temp = threading.Thread(target=self.gamma_terminal_worker)
+        temp.start()
 
 app = Gtk.Application(application_id='org.gamma_launcher')
 app.connect('activate', on_activate)
