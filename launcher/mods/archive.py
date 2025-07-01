@@ -2,8 +2,34 @@ from os import name as os_name
 from py7zr import SevenZipFile
 from subprocess import run
 from typing import List
-from unrar.rarfile import RarFile
 from zipfile import ZipFile
+
+try:
+    from unrar.rarfile import RarFile
+except ModuleNotFoundError:
+    rar_extract = None
+    rar_list = None
+else:
+    def rar_extract(f, p):
+        return RarFile(f'{f}').extractall(f'{p}')
+
+    def rar_list(f):
+        return RarFile(f).namelist()
+
+try:
+    import unrardll
+except ModuleNotFoundError:
+    pass
+else:
+    if not rar_extract and not rar_list:
+        def rar_extract(f, p):
+            return unrardll.extract(f'{f}', f'{p}')
+
+        def rar_list(f):
+            return unrardll.names(f)
+
+if not rar_extract and not rar_list:
+    raise Exception('Unable to find unrar/unrardll library')
 
 
 def get_mime_from_file(filename) -> str:
@@ -61,7 +87,7 @@ else:
 
     _extract_func_dict = {
         'application/x-7z-compressed': lambda f, p: SevenZipFile(f).extractall(p),
-        'application/x-rar': lambda f, p: RarFile(f'{f}').extractall(f'{p}'),
+        'application/x-rar': rar_extract,
         'application/zip': lambda f, p: ZipFile(f).extractall(p),
         'application/x-7z-compressed+bcj2': _7zip_bcj2_workaround
     }
@@ -76,6 +102,6 @@ def list_archive_content(filename: str, mime: str = None) -> List[str]:
     mime = mime or get_mime_from_file(filename)
     return {
         'application/x-7z-compressed': lambda f: SevenZipFile(f).getnames(),
-        'application/x-rar': lambda f: RarFile(f).namelist(),
+        'application/x-rar': rar_list,
         'application/zip': lambda f: ZipFile(f).namelist(),
     }.get(mime)(filename)
